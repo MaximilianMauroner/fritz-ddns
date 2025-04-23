@@ -1,40 +1,93 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/create-next-app).
+# fritz-ddns
+
+This project is a TypeScript/Next.js-based fork of [1rfsNet/Fritz-Box-Cloudflare-DynDNS](https://github.com/1rfsNet/Fritz-Box-Cloudflare-DynDNS), originally written in PHP. It provides a dynamic DNS update endpoint for use with AVM Fritz!Box routers, updating Cloudflare DNS records with your current public IP address.
+
+## Features
+
+- Updates Cloudflare DNS records (A) for a specified domain.
+- Secured with a token to prevent unauthorized updates.
+- Supports logging and proxying options.
+- Configuration via environment variables.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js (v18+ recommended)
+- A Cloudflare account with API credentials
+- A Fritz!Box router (or any device capable of making DynDNS requests)
+
+### Installation
+
+1. Clone this repository:
+   ```sh
+   git clone https://github.com/yourusername/fritz-ddns.git
+   cd fritz-ddns
+   ```
+
+2. Install dependencies:
+   ```sh
+   npm install
+   ```
+
+3. Copy the example environment file and fill in your credentials:
+   ```sh
+   cp .env.example .env
+   # Edit .env with your Cloudflare email, API key, and a secure token
+   ```
+
+### Configuration
+
+Edit `.env`:
+
+```
+CLOUDFLARE_EMAIL="your cloudflare email"
+CLOUDFLARE_API_KEY="your cloudflare api key"
+CLOUDFLARE_TOKEN="your chosen token"
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- `CLOUDFLARE_EMAIL`: Your Cloudflare account email.
+- `CLOUDFLARE_API_KEY`: Your Cloudflare API key (Global or restricted for DNS).
+- `CLOUDFLARE_TOKEN`: A secret token you set and use in update requests (also set this in your Fritz!Box DynDNS settings).
 
-You can start editing the page by modifying `app/route.ts`. The page auto-updates as you edit the file.
+### Usage
 
-## Learn More
+Start the development server:
 
-To learn more about Next.js, take a look at the following resources:
+```sh
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The update endpoint is available at:  
+`GET /api/route` (or `/route` depending on deployment)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+#### Example Request
 
-## Deploy on Vercel
+```
+https://your-server/route?cf_key=YOUR_TOKEN&domain=example.com&ipv4=1.2.3.4&log=true&proxy=false
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `cf_key`: Must match `CLOUDFLARE_TOKEN` in your `.env`.
+- `domain`: The DNS record to update.
+- `ipv4`: The new IPv4 address.
+- `log`: (optional) Set to `true` to enable logging.
+- `proxy`: (optional) Set to `true` to enable Cloudflare proxying.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Fritz!Box Setup
 
-## API Routes
+In your Fritz!Box DynDNS settings, use the following:
 
-This directory contains example API routes for the headless API app.
+- **Provider**: User-defined
+- **Update-URL**:  
+  ```
+  https://your-server/route?cf_key=YOUR_TOKEN&domain=<domain>&ipv4=<ipaddr>
+  ```
+- Replace `<domain>` and `<ipaddr>` with Fritz!Box placeholders.
 
-For more details, see [route.js file convention](https://nextjs.org/docs/app/api-reference/file-conventions/route).
+## License
+
+GPL-3.0
+
+## Credits
+
+- Forked from [1rfsNet/Fritz-Box-Cloudflare-DynDNS](https://github.com/1rfsNet/Fritz-Box-Cloudflare-DynDNS)
