@@ -1,23 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import Cloudflare from 'cloudflare';
 
-const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4/";
+const client = new Cloudflare({
+  apiEmail: process.env['CLOUDFLARE_EMAIL'],
+  apiKey: process.env['CLOUDFLARE_API_KEY'],
+});
 
-async function cfFetch(
-  url: string,
-  cf_key: string,
-  method: "GET" | "POST" | "PUT" = "GET",
-  body?: any
-) {
-  const res = await fetch(CLOUDFLARE_API + url, {
-    method,
-    headers: {
-      Authorization: `Bearer ${cf_key}`,
-      "Content-Type": "application/json",
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  return res.json();
-}
 
 function isValidIPv4(ip: string) {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
@@ -29,6 +17,13 @@ function isValidIPv6(ip: string) {
 export async function GET(req: NextRequest) {
   const params = Object.fromEntries(req.nextUrl.searchParams.entries());
   const { cf_key, domain, ipv4, ipv6, log, proxy } = params;
+
+  if (cf_key !== process.env['CLOUDFLARE_TOKEN']) {
+    return NextResponse.json(
+      { error: "Invalid Cloudflare token" },
+      { status: 403 }
+    );
+  }
 
   // Logging helper (console only)
   function wlog(level: string, msg: string) {
@@ -52,7 +47,7 @@ export async function GET(req: NextRequest) {
   let validIPv4 = ipv4 && isValidIPv4(ipv4) ? ipv4 : null;
   let validIPv6 = ipv6 && isValidIPv6(ipv6) ? ipv6 : null;
 
-  if (!validIPv4 && !validIPv6) {
+  if (!validIPv4) {
     wlog("ERROR", "Neither IPv4 nor IPv6 available.");
     wlog("INFO", "Script aborted");
     return NextResponse.json(
@@ -64,98 +59,35 @@ export async function GET(req: NextRequest) {
   const proxied = proxy === "true";
   wlog("INFO", `Record will${proxied ? "" : " not"} be proxied by Cloudflare`);
 
-  // Test authentication
-  const auth = await cfFetch("zones", cf_key);
-  if (!auth.success) {
-    wlog("ERROR", "Cloudflare authentication failed: " + (auth.errors?.[0]?.message || ""));
-    wlog("INFO", "Script aborted");
-    return NextResponse.json(
-      { error: "Cloudflare authentication failed: " + (auth.errors?.[0]?.message || "") },
-      { status: 401 }
-    );
-  }
-  wlog("INFO", "Cloudflare authentication successful");
-
-  wlog("INFO", "Found records to set: " + domain);
-  const domains = domain.split(",");
-  let result = "success";
-
-  for (const dom of domains) {
-    wlog("INFO", `Find zone for record '${dom}'`);
-    const parts = dom.split(".").reverse();
-    if (parts.length < 2) {
-      wlog("ERROR", `Invalid domain: ${dom}`);
-      result = "failure";
-      continue;
-    }
-    const zoneName = parts[1] + "." + parts[0];
-    const zoneResp = await cfFetch(`zones?name=${zoneName}&status=active`, cf_key);
-    if (!zoneResp.success || !zoneResp.result?.[0]?.id) {
-      wlog("ERROR", `Could not set record '${dom}', could not determine zone id.`);
-      result = "failure";
-      continue;
-    }
-    const zoneId = zoneResp.result[0].id;
-    wlog("INFO", `Found zone id (${zoneId}) for '${dom}'.`);
-
-    // Get existing DNS records
-    const recResp = await cfFetch(`zones/${zoneId}/dns_records?name=${dom}`, cf_key);
-    const records = recResp.result || [];
-
-    // Helper to create or update record
-    async function upsertRecord(type: "A" | "AAAA", content: string) {
-      const existing = records.find((r: any) => r.type === type);
-      if (existing) {
-        if (existing.content === content) {
-          wlog("INFO", `Skipped record, because ${type === "A" ? "ipv4" : "ipv6"} is already up-to-date.`);
-          return;
-        }
-        // Update
-        const upd = await cfFetch(
-          `zones/${zoneId}/dns_records/${existing.id}`,
-          cf_key,
-          "PUT",
-          {
-            type,
-            name: dom,
-            content,
-            ttl: 1,
-            proxied,
-          }
+  // Automatically fetches more pages as needed.
+  for await (const zone of client.zones.list()) {
+    if (domain.includes(zone.name)) {
+      const list = await client.dns.records.list({ zone_id: zone.id })
+      const record = list.result.find((r: any) => r.name === domain)
+      if (!record) {
+        wlog("ERROR", `Record ${domain} not found`);
+        wlog("INFO", "Script aborted");
+        return NextResponse.json(
+          { error: `Record ${domain} not found` },
+          { status: 404 }
         );
-        if (!upd.success) {
-          wlog("ERROR", `Could not update record for '${dom}'.`);
-          result = "failure";
-        } else {
-          wlog("INFO", `Updated ${type}-Record with ip '${content}' successfully.`);
-        }
-      } else {
-        // Create
-        const crt = await cfFetch(
-          `zones/${zoneId}/dns_records`,
-          cf_key,
-          "POST",
-          {
-            type,
-            name: dom,
-            content,
-            ttl: 1,
-            proxied,
-          }
-        );
-        if (!crt.success) {
-          wlog("ERROR", `Could not create record for '${dom}'.`);
-          result = "failure";
-        } else {
-          wlog("INFO", `Created new ${type}-Record for '${dom}' with ip '${content}' successfully.`);
-        }
       }
+      await client.dns.records.update(record.id, {
+        zone_id: zone.id,
+        type: "A",
+        name: domain,
+        content: validIPv4,
+        ttl: 2 * 60,
+      });
+      break;
     }
-
-    if (validIPv4) await upsertRecord("A", validIPv4);
-    if (validIPv6) await upsertRecord("AAAA", validIPv6);
   }
+
 
   wlog("INFO", "===== Script completed =====");
-  return NextResponse.json({ result });
+  return NextResponse.json(
+    { message: "IP updated successfully" },
+    { status: 200 }
+  );
 }
+
