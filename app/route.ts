@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import Cloudflare from 'cloudflare';
+import Cloudflare from "cloudflare";
 
 const client = new Cloudflare({
-  apiEmail: process.env['CLOUDFLARE_EMAIL'],
-  apiKey: process.env['CLOUDFLARE_API_KEY'],
+  apiEmail: process.env["CLOUDFLARE_EMAIL"],
+  apiKey: process.env["CLOUDFLARE_API_KEY"],
 });
-
 
 function isValidIPv4(ip: string) {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(ip);
@@ -18,7 +17,7 @@ export async function GET(req: NextRequest) {
   const params = Object.fromEntries(req.nextUrl.searchParams.entries());
   const { cf_key, domain, ipv4, ipv6, log, proxy } = params;
 
-  if (cf_key !== process.env['CLOUDFLARE_TOKEN']) {
+  if (cf_key !== process.env["CLOUDFLARE_TOKEN"]) {
     return NextResponse.json(
       { error: "Invalid Cloudflare token" },
       { status: 403 }
@@ -62,8 +61,8 @@ export async function GET(req: NextRequest) {
   // Automatically fetches more pages as needed.
   for await (const zone of client.zones.list()) {
     if (domain.includes(zone.name)) {
-      const list = await client.dns.records.list({ zone_id: zone.id })
-      const record = list.result.find((r: any) => r.name === domain)
+      const list = await client.dns.records.list({ zone_id: zone.id });
+      const record = list.result.find((r: any) => r.name === domain);
       if (!record) {
         wlog("ERROR", `Record ${domain} not found`);
         wlog("INFO", "Script aborted");
@@ -83,11 +82,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-
   wlog("INFO", "===== Script completed =====");
   return NextResponse.json(
     { message: "IP updated successfully" },
     { status: 200 }
   );
 }
-
